@@ -1,0 +1,9 @@
+{{template "headera" .}}
+<audio controls="controls" autoplay="autoplay">
+{{ with .Ms }}
+	{{range .}}
+		<source src="{{.Url}}" title="{{.Name}}" type="{{.T}}"/>
+	{{end}}
+{{end}}
+</audio>
+{{template "footera" .}}

@@ -1,0 +1,9 @@
+{{template "headerv" .}}
+<video width= "100%" height="100%" controls="controls">
+{{ with .Ms }}
+	{{range .}}
+		<source src="{{.Url}}" title="{{.Name}}" type="{{.T}}"/>
+	{{end}}
+{{end}}
+</video>
+{{template "footerv" .}}
