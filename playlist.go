@@ -6,7 +6,7 @@
 
 * Creation Date : 03-16-2014
 
-* Last Modified : Tue 19 Aug 2014 05:59:05 AM UTC
+* Last Modified : Mon 06 Oct 2014 05:33:15 AM UTC
 
 * Created By : Kiyor
 
@@ -67,10 +67,12 @@ var (
 		"mp4": "video",
 	}
 	CONVERTCMD = map[string]string{
-		"mkv": "/usr/local/bin/avconv -i \"{@}.mkv\" -c:v copy -c:a copy -sn \"{@}.mp4\"",
+		// 		"mkv": "/usr/local/bin/avconv -i \"{@}.mkv\" -c:v copy -c:a copy -sn \"{@}.mp4\"",
+		"mkv": "/usr/local/bin/ffmpeg -i \"{@}.mkv\" -vcodec copy -acodec copy \"{@}.mp4\"",
 		// 		"mkv": "/usr/local/bin/avconv -i \"{@}.mkv\" -c:v copy -acodec aac -ab 128k -strict experimental -sn \"{@}.mp4\"",
-		"avi": "/usr/local/bin/avconv -i \"{@}.avi\" -c:v copy -c:a copy -sn \"{@}.mp4\"",
+		// 		"avi": "/usr/local/bin/avconv -i \"{@}.avi\" -c:v copy -c:a copy -sn \"{@}.mp4\"",
 		"wmv": "/usr/local/bin/ffmpeg -i \"{@}.wmv\" -c:v libx264 -crf 23 -c:a libfaac -q:a 100 \"{@}.mp4\"",
+		"avi": "/usr/local/bin/ffmpeg -i \"{@}.avi\" -c:v libx264 -crf 23 -c:a libfaac -q:a 100 \"{@}.mp4\"",
 		"ass": "/usr/local/bin/ass2srt.pl -f `file -bi \"{@}.ass\"|cut -d= -f2` -t utf8 \"{@}.ass\" \"{@}.srt\"",
 	}
 	CONVFMT = map[string]string{
@@ -90,7 +92,6 @@ var (
 
 func init() {
 	if _, err := os.Stat(LOCKFILE); err == nil {
-		fmt.Println("playlist is running, skip")
 		os.Exit(1)
 	}
 	if err := ioutil.WriteFile(LOCKFILE, []byte(""), 0644); err != nil {
@@ -113,11 +114,8 @@ func main() {
 	}
 	dirs = removeDuplicates(dirs)
 	for _, dir := range dirs {
-		// 		fmt.Println(dir)
 		list, _ := find(dir, 1)
-		// 		fmt.Println(dir)
 		ms := list2media(dir, list)
-		// 		fmt.Println(mkPlaylist(dir, ms))
 		write2file(dir, mkPlaylist(dir, ms))
 	}
 	if err := os.Remove(LOCKFILE); err != nil {
@@ -131,6 +129,11 @@ func write2file(dir string, player string) error {
 }
 
 func mkPlaylist(dir string, m []Media) string {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in mkPlaylist", r)
+		}
+	}()
 	token := strings.Split(m[0].T, "/")
 	var t *template.Template
 	if token[0] == "audio" {
@@ -371,7 +374,6 @@ func (f *file) isConverted() bool {
 	prefix := f.getDir() + f.getPrefix()
 	chkF := prefix + "." + CONVFMT[f.ext]
 	if _, err := os.Stat(chkF); err == nil {
-		// 		fmt.Println("file already exist", chkF)
 		return true
 	}
 	return false
