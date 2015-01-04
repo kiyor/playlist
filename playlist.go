@@ -6,7 +6,7 @@
 
 * Creation Date : 03-16-2014
 
-* Last Modified : Sun 04 Jan 2015 07:41:08 AM UTC
+* Last Modified : Sun 04 Jan 2015 08:08:12 AM UTC
 
 * Created By : Kiyor
 
@@ -89,6 +89,7 @@ var (
 	SUBTITLEFMT     = "srt"
 	convertingQueue = make(chan *file)
 	wg              sync.WaitGroup
+	reEpisode       = regexp.MustCompile(`(\[|\s)(\d\d)(\]|\s)`)
 )
 
 func init() {
@@ -208,15 +209,10 @@ func (m *Media) updateSubtitle() {
 }
 
 func (f *file) getEpisode() {
-	re, err := regexp.Compile(`(\[|\s)(\d\d)(\]|\s)`)
-	if err != nil {
-		// 		panic(err)
+	if !reEpisode.MatchString(f.Name) {
 		return
 	}
-	if !re.MatchString(f.Name) {
-		return
-	}
-	s := re.FindStringSubmatch(f.Name)
+	s := reEpisode.FindStringSubmatch(f.Name)
 	if len(s) < 4 {
 		return
 	}
