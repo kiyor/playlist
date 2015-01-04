@@ -6,7 +6,7 @@
 
 * Creation Date : 03-16-2014
 
-* Last Modified : Mon 06 Oct 2014 05:33:15 AM UTC
+* Last Modified : Sun 04 Jan 2015 07:41:08 AM UTC
 
 * Created By : Kiyor
 
@@ -28,12 +28,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 )
 
 type Media struct {
 	file
-	T   string
+	T   string //type like video/mp4
 	Sub []Subtitle
 }
 
@@ -44,11 +45,12 @@ type Subtitle struct {
 
 type file struct {
 	os.FileInfo
-	Name    string
-	path    string
-	Url     string
-	ext     string
-	Episode int
+	Name         string
+	path         string
+	Url          string
+	ext          string
+	Episode      int
+	isConverting bool
 }
 
 type Medias struct {
@@ -67,10 +69,7 @@ var (
 		"mp4": "video",
 	}
 	CONVERTCMD = map[string]string{
-		// 		"mkv": "/usr/local/bin/avconv -i \"{@}.mkv\" -c:v copy -c:a copy -sn \"{@}.mp4\"",
 		"mkv": "/usr/local/bin/ffmpeg -i \"{@}.mkv\" -vcodec copy -acodec copy \"{@}.mp4\"",
-		// 		"mkv": "/usr/local/bin/avconv -i \"{@}.mkv\" -c:v copy -acodec aac -ab 128k -strict experimental -sn \"{@}.mp4\"",
-		// 		"avi": "/usr/local/bin/avconv -i \"{@}.avi\" -c:v copy -c:a copy -sn \"{@}.mp4\"",
 		"wmv": "/usr/local/bin/ffmpeg -i \"{@}.wmv\" -c:v libx264 -crf 23 -c:a libfaac -q:a 100 \"{@}.mp4\"",
 		"avi": "/usr/local/bin/ffmpeg -i \"{@}.avi\" -c:v libx264 -crf 23 -c:a libfaac -q:a 100 \"{@}.mp4\"",
 		"ass": "/usr/local/bin/ass2srt.pl -f `file -bi \"{@}.ass\"|cut -d= -f2` -t utf8 \"{@}.ass\" \"{@}.srt\"",
@@ -85,9 +84,11 @@ var (
 		"zh-cn": "sc,GB",
 		"zh-tw": "tc,BIG5",
 	}
-	Host, Dir   string
-	LOCKFILE    = "/var/run/playlist/playlist.lock"
-	SUBTITLEFMT = "srt"
+	Host, Dir       string
+	LOCKFILE        = "/var/run/playlist/playlist.lock"
+	SUBTITLEFMT     = "srt"
+	convertingQueue = make(chan *file)
+	wg              sync.WaitGroup
 )
 
 func init() {
@@ -104,9 +105,17 @@ func init() {
 }
 
 func main() {
+	defer func() {
+		if err := os.Remove(LOCKFILE); err != nil {
+			fmt.Println("cannot remove lock file", LOCKFILE)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}()
+	go converting()
 	files, err := find(Dir, 0)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println(err.Error())
 	}
 	var dirs []string
 	for _, v := range files {
@@ -115,12 +124,10 @@ func main() {
 	dirs = removeDuplicates(dirs)
 	for _, dir := range dirs {
 		list, _ := find(dir, 1)
-		ms := list2media(dir, list)
+		ms := list2media(list)
 		write2file(dir, mkPlaylist(dir, ms))
 	}
-	if err := os.Remove(LOCKFILE); err != nil {
-		fmt.Println("cannot remove lock file", LOCKFILE)
-	}
+	wg.Wait()
 }
 
 func write2file(dir string, player string) error {
@@ -152,29 +159,7 @@ func mkPlaylist(dir string, m []Media) string {
 	if err != nil {
 		fmt.Println(err)
 	}
-	// 	fmt.Println(buf.String())
 	return buf.String()
-}
-
-func dir2title(dir string) string {
-	token := strings.Split(dir, "/")
-	return token[len(token)-2 : len(token)-1][0]
-}
-
-func list2media(dir string, fs []file) []Media {
-	var ms []Media
-	for _, f := range fs {
-		var m Media
-		m.file = f
-		m.updateT()
-		m.updateUrl()
-		m.updateSubtitle()
-		if *fullurl {
-			m.Url = Host + m.Url
-		}
-		ms = append(ms, m)
-	}
-	return ms
 }
 
 // get file name with out ext
@@ -200,8 +185,6 @@ func (m *Media) updateSubtitle() {
 		fmt.Println("REPLACE", r.Replace(prefix), m.ext)
 	}
 	conf.Name = ".*" + r.Replace(prefix) + ".*"
-	// 	fmt.Println("Episode", m.Episode, m.Name)
-	// 	fmt.Println("prefix", prefix)
 	conf.Ext = SUBTITLEFMT
 	conf.Dir = m.getDir()
 	conf.Ftype = "f"
@@ -227,7 +210,8 @@ func (m *Media) updateSubtitle() {
 func (f *file) getEpisode() {
 	re, err := regexp.Compile(`(\[|\s)(\d\d)(\]|\s)`)
 	if err != nil {
-		panic(err)
+		// 		panic(err)
+		return
 	}
 	if !re.MatchString(f.Name) {
 		return
@@ -250,8 +234,7 @@ func (s *Subtitle) guessLang() {
 			r, err := regexp.Compile(`.*` + keyString + `.*`)
 			if err != nil {
 				fmt.Println(err.Error())
-			}
-			if r.MatchString(s.Name) {
+			} else if r.MatchString(s.Name) {
 				s.Lang = keyLang
 				return
 			}
@@ -288,17 +271,16 @@ func (f *file) getDir() string {
 func find(location string, depth int) ([]file, error) {
 	var files []file
 	locationToken := strings.Split(location, "/")
-	err := filepath.Walk(location, func(path string, _ os.FileInfo, _ error) error {
+	err := filepath.Walk(location, func(path string, f os.FileInfo, _ error) error {
 		if *verbose {
 			fmt.Println("found file", path)
 		}
 		var myfile file
-		err := myfile.update(path)
-		if err != nil {
-			return err
-		}
+		myfile.FileInfo = f
+		myfile.update(path)
 		if myfile.needConv() {
-			myfile.convert()
+			wg.Add(1)
+			convertingQueue <- &myfile
 		}
 		if myfile.needPlaylist() {
 			myfile.getEpisode()
@@ -308,11 +290,7 @@ func find(location string, depth int) ([]file, error) {
 				pathToken := strings.Split(path, "/")
 				if len(locationToken)+depth > len(pathToken) {
 					files = append(files, myfile)
-
-					// 					fmt.Println(path, len(locationToken)+depth, len(pathToken))
 				} else {
-					// 					fmt.Println("skip path", path)
-					// 					fmt.Println(path, len(locationToken)+depth, len(pathToken))
 				}
 			}
 		}
@@ -321,17 +299,21 @@ func find(location string, depth int) ([]file, error) {
 	return files, err
 }
 
-func (f *file) update(path string) error {
-	var err error
-	f.FileInfo, err = os.Stat(path)
-	if err != nil {
-		return err
+func converting() {
+	for {
+		select {
+		case myfile := <-convertingQueue:
+			myfile.convert()
+			wg.Done()
+		}
 	}
+}
+
+func (f *file) update(path string) {
 	f.path = path
 	f.Name = f.FileInfo.Name()
 	f.updateFileExt()
 	f.updateUrl()
-	return nil
 }
 
 func (f *file) needPlaylist() bool {
@@ -356,9 +338,10 @@ func (f *file) needConv() bool {
 }
 
 func (f *file) convert() {
-	if f.isConverted() || f.IsDir() {
+	if f.isConverted() || f.IsDir() || f.isConverting {
 		return
 	}
+	f.isConverting = true
 	prefix := f.getDir() + f.getPrefix()
 	convCmd := strings.Replace(CONVERTCMD[f.ext], "{@}", prefix, -1)
 	log.Println(convCmd)
@@ -368,6 +351,7 @@ func (f *file) convert() {
 	if err := cmd.Run(); err != nil {
 		fmt.Println("not able to convert file", f.Name, err)
 	}
+	f.isConverting = false
 }
 
 func (f *file) isConverted() bool {
@@ -386,16 +370,4 @@ func (f *file) updateFileExt() {
 
 func (m *Media) updateT() {
 	m.T = MEDIATYPE[m.ext] + "/" + m.ext
-}
-
-func removeDuplicates(a []string) []string {
-	result := []string{}
-	seen := map[string]string{}
-	for _, val := range a {
-		if _, ok := seen[val]; !ok {
-			result = append(result, val)
-			seen[val] = val
-		}
-	}
-	return result
 }
