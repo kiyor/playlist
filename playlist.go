@@ -6,7 +6,7 @@
 
 * Creation Date : 03-16-2014
 
-* Last Modified : Sun 04 Jan 2015 08:08:12 AM UTC
+* Last Modified : Mon 05 Jan 2015 03:13:26 AM UTC
 
 * Created By : Kiyor
 
@@ -55,13 +55,14 @@ type file struct {
 
 type Medias struct {
 	Title string
-	Ms    []Media
+	Ms    []*Media
 }
 
 var (
 	host      *string = flag.String("host", "hostname", "host")
 	fullurl   *bool   = flag.Bool("fullurl", false, "set up full url")
 	dir       *string = flag.String("dir", "/home/nginx/html", "rootdir")
+	tmpldir   *string = flag.String("tmpl", "/home/nginx/templates/*.tmpl", "tmpldir")
 	verbose   *bool   = flag.Bool("v", false, "output verbose")
 	MEDIATYPE         = map[string]string{
 		"mp3": "audio",
@@ -88,8 +89,8 @@ var (
 	LOCKFILE        = "/var/run/playlist/playlist.lock"
 	SUBTITLEFMT     = "srt"
 	convertingQueue = make(chan *file)
-	wg              sync.WaitGroup
 	reEpisode       = regexp.MustCompile(`(\[|\s)(\d\d)(\]|\s)`)
+	wg              sync.WaitGroup
 )
 
 func init() {
@@ -118,15 +119,22 @@ func main() {
 	if err != nil {
 		log.Println(err.Error())
 	}
+	// 	fmt.Println(files)
 	var dirs []string
 	for _, v := range files {
 		dirs = append(dirs, v.getDir())
 	}
 	dirs = removeDuplicates(dirs)
 	for _, dir := range dirs {
-		list, _ := find(dir, 1)
+		list, err := find(dir, 1)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
 		ms := list2media(list)
-		write2file(dir, mkPlaylist(dir, ms))
+		err = write2file(dir, mkPlaylist(dir, ms))
+		if err != nil {
+			fmt.Println(err.Error())
+		}
 	}
 	wg.Wait()
 }
@@ -136,7 +144,7 @@ func write2file(dir string, player string) error {
 	return err
 }
 
-func mkPlaylist(dir string, m []Media) string {
+func mkPlaylist(dir string, m []*Media) string {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("Recovered in mkPlaylist", r)
@@ -145,20 +153,18 @@ func mkPlaylist(dir string, m []Media) string {
 	token := strings.Split(m[0].T, "/")
 	var t *template.Template
 	if token[0] == "audio" {
-		// 		fmt.Println(dir, "is audio")
 		t = template.New("audio.tmpl")
 	} else if token[0] == "video" {
-		// 		fmt.Println(dir, "is mp4")
 		t = template.New("video.tmpl")
 	}
-	t = template.Must(t.ParseGlob(Dir + "/templates/*.tmpl"))
+	t = template.Must(t.ParseGlob(*tmpldir))
 	var buf bytes.Buffer
 	var ms Medias
 	ms.Title = dir2title(dir)
 	ms.Ms = m
 	err := t.Execute(&buf, ms)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 	}
 	return buf.String()
 }
@@ -189,9 +195,6 @@ func (m *Media) updateSubtitle() {
 	conf.Ext = SUBTITLEFMT
 	conf.Dir = m.getDir()
 	conf.Ftype = "f"
-	if *verbose {
-		fmt.Println("conf", conf)
-	}
 	fs := gfind.Find(conf)
 	if len(fs) != 0 {
 		for _, v := range fs {
@@ -264,8 +267,8 @@ func (f *file) getDir() string {
 	return dir
 }
 
-func find(location string, depth int) ([]file, error) {
-	var files []file
+func find(location string, depth int) ([]*file, error) {
+	var files []*file
 	locationToken := strings.Split(location, "/")
 	err := filepath.Walk(location, func(path string, f os.FileInfo, _ error) error {
 		if *verbose {
@@ -281,11 +284,11 @@ func find(location string, depth int) ([]file, error) {
 		if myfile.needPlaylist() {
 			myfile.getEpisode()
 			if depth == 0 {
-				files = append(files, myfile)
+				files = append(files, &myfile)
 			} else {
 				pathToken := strings.Split(path, "/")
 				if len(locationToken)+depth > len(pathToken) {
-					files = append(files, myfile)
+					files = append(files, &myfile)
 				} else {
 				}
 			}
@@ -300,16 +303,25 @@ func converting() {
 		select {
 		case myfile := <-convertingQueue:
 			myfile.convert()
-			wg.Done()
 		}
 	}
 }
 
-func (f *file) update(path string) {
+func (f *file) update(path string) error {
+	var err error
+	f.FileInfo, err = os.Stat(path)
+	if err != nil {
+		f.FileInfo, err = os.Lstat(path)
+		if err != nil {
+			log.Println(err.Error())
+			return err
+		}
+	}
 	f.path = path
 	f.Name = f.FileInfo.Name()
 	f.updateFileExt()
 	f.updateUrl()
+	return nil
 }
 
 func (f *file) needPlaylist() bool {
@@ -334,6 +346,7 @@ func (f *file) needConv() bool {
 }
 
 func (f *file) convert() {
+	defer wg.Done()
 	if f.isConverted() || f.IsDir() || f.isConverting {
 		return
 	}
