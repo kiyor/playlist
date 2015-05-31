@@ -6,7 +6,7 @@
 
 * Creation Date : 03-16-2014
 
-* Last Modified : Mon 05 Jan 2015 03:13:26 AM UTC
+* Last Modified : Sun 31 May 2015 07:20:34 PM UTC
 
 * Created By : Kiyor
 
@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"github.com/kiyor/gfind/lib"
 	"io/ioutil"
-	"log"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -101,15 +101,27 @@ func init() {
 		fmt.Println("not able to write lock file", LOCKFILE)
 		os.Exit(1)
 	}
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 	Host = "http://" + *host
 	Dir = *dir
+	showDebug := false
+	if *verbose {
+		showDebug = true
+
+	}
+	Logger = NewLogger(&LogOptions{
+		Name:      "pl",
+		ShowErr:   true,
+		ShowDebug: showDebug,
+		ShowColor: true,
+	})
 }
 
 func main() {
 	defer func() {
 		if err := os.Remove(LOCKFILE); err != nil {
-			fmt.Println("cannot remove lock file", LOCKFILE)
+			Logger.Error("%v %v", "cannot remove lock file", LOCKFILE)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -117,24 +129,27 @@ func main() {
 	go converting()
 	files, err := find(Dir, 0)
 	if err != nil {
-		log.Println(err.Error())
+		Logger.Error("%v", err.Error())
 	}
-	// 	fmt.Println(files)
 	var dirs []string
 	for _, v := range files {
 		dirs = append(dirs, v.getDir())
 	}
 	dirs = removeDuplicates(dirs)
+	wg.Add(len(dirs))
 	for _, dir := range dirs {
-		list, err := find(dir, 1)
-		if err != nil {
-			fmt.Println(err.Error())
-		}
-		ms := list2media(list)
-		err = write2file(dir, mkPlaylist(dir, ms))
-		if err != nil {
-			fmt.Println(err.Error())
-		}
+		go func(dir string) {
+			list, err := find(dir, 1)
+			if err != nil {
+				Logger.Error("%v", err.Error())
+			}
+			ms := list2media(list)
+			err = write2file(dir, mkPlaylist(dir, ms))
+			if err != nil {
+				Logger.Error("%v", err.Error())
+			}
+			wg.Done()
+		}(dir)
 	}
 	wg.Wait()
 }
@@ -147,7 +162,7 @@ func write2file(dir string, player string) error {
 func mkPlaylist(dir string, m []*Media) string {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("Recovered in mkPlaylist", r)
+			Logger.Critical("%v %v", "Recovered in mkPlaylist", r)
 		}
 	}()
 	token := strings.Split(m[0].T, "/")
@@ -164,7 +179,7 @@ func mkPlaylist(dir string, m []*Media) string {
 	ms.Ms = m
 	err := t.Execute(&buf, ms)
 	if err != nil {
-		log.Println(err)
+		Logger.Error("%v", err.Error())
 	}
 	return buf.String()
 }
@@ -188,9 +203,7 @@ func (m *Media) updateSubtitle() {
 	var ss []Subtitle
 	var conf gfind.FindConf
 	r := strings.NewReplacer("(", "\\(", ")", "\\)", "[", "\\[", "]", "\\]", ".", "\\.", "\\", "\\\\", " ", "\\s", "'", "\\'")
-	if *verbose {
-		fmt.Println("REPLACE", r.Replace(prefix), m.ext)
-	}
+	Logger.Info("%v %v %v", "REPLACE", r.Replace(prefix), m.ext)
 	conf.Name = ".*" + r.Replace(prefix) + ".*"
 	conf.Ext = SUBTITLEFMT
 	conf.Dir = m.getDir()
@@ -203,9 +216,7 @@ func (m *Media) updateSubtitle() {
 			s.guessLang()
 			s.getEpisode()
 			ss = append(ss, s)
-			if *verbose {
-				fmt.Println("file", m.Name, "has Subtitle", s.Name, s.Lang)
-			}
+			Logger.Info("%v %v %v %v %v", "file", m.Name, "has Subtitle", s.Name, s.Lang)
 		}
 	}
 	m.Sub = ss
@@ -232,7 +243,7 @@ func (s *Subtitle) guessLang() {
 		for _, keyString := range keyStrings {
 			r, err := regexp.Compile(`.*` + keyString + `.*`)
 			if err != nil {
-				fmt.Println(err.Error())
+				Logger.Error("%v", err.Error())
 			} else if r.MatchString(s.Name) {
 				s.Lang = keyLang
 				return
@@ -271,9 +282,7 @@ func find(location string, depth int) ([]*file, error) {
 	var files []*file
 	locationToken := strings.Split(location, "/")
 	err := filepath.Walk(location, func(path string, f os.FileInfo, _ error) error {
-		if *verbose {
-			fmt.Println("found file", path)
-		}
+		Logger.Info("%v %v", "found file", path)
 		var myfile file
 		myfile.FileInfo = f
 		myfile.update(path)
@@ -313,7 +322,7 @@ func (f *file) update(path string) error {
 	if err != nil {
 		f.FileInfo, err = os.Lstat(path)
 		if err != nil {
-			log.Println(err.Error())
+			Logger.Error("%v", err.Error())
 			return err
 		}
 	}
@@ -336,9 +345,7 @@ func (f *file) needPlaylist() bool {
 func (f *file) needConv() bool {
 	for k, _ := range CONVFMT {
 		if k == f.ext {
-			if *verbose {
-				fmt.Println("need convert", f.Name)
-			}
+			Logger.Info("%v %v", "need convert", f.Name)
 			return true
 		}
 	}
@@ -353,12 +360,12 @@ func (f *file) convert() {
 	f.isConverting = true
 	prefix := f.getDir() + f.getPrefix()
 	convCmd := strings.Replace(CONVERTCMD[f.ext], "{@}", prefix, -1)
-	log.Println(convCmd)
+	Logger.Notice("%v", convCmd)
 	cmd := exec.Command("/bin/bash", "-c", convCmd)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Println("not able to convert file", f.Name, err)
+		Logger.Error("%v %v %v", "not able to convert file", f.Name, err.Error())
 	}
 	f.isConverting = false
 }
