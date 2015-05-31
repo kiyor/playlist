@@ -6,21 +6,7 @@
 
 * Creation Date : 05-31-2015
 
-* Last Modified : Sun 31 May 2015 07:09:08 PM UTC
-
-* Created By : Kiyor
-
-_._._._._._._._._._._._._._._._._._._._._.*/
-
-/* -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.
-
-* File Name : logger.go
-
-* Purpose :
-
-* Creation Date : 02-26-2015
-
-* Last Modified : Wed 01 Apr 2015 09:58:27 PM PDT
+* Last Modified : Sun 31 May 2015 07:43:35 PM UTC
 
 * Created By : Kiyor
 
