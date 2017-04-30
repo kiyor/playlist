@@ -6,7 +6,7 @@
 
 * Creation Date : 03-16-2014
 
-* Last Modified : Sun 31 May 2015 07:20:34 PM UTC
+* Last Modified : Sun 30 Apr 2017 10:28:53 AM UTC
 
 * Created By : Kiyor
 
@@ -25,7 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
+	// 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +56,7 @@ type file struct {
 type Medias struct {
 	Title string
 	Ms    []*Media
+	CDN   string
 }
 
 var (
@@ -63,16 +64,20 @@ var (
 	fullurl   *bool   = flag.Bool("fullurl", false, "set up full url")
 	dir       *string = flag.String("dir", "/home/nginx/html", "rootdir")
 	tmpldir   *string = flag.String("tmpl", "/home/nginx/templates/*.tmpl", "tmpldir")
+	cdn       *string = flag.String("cdn", "", "cdn domain like cdn.playlist.com")
 	verbose   *bool   = flag.Bool("v", false, "output verbose")
 	MEDIATYPE         = map[string]string{
 		"mp3": "audio",
 		"wav": "audio",
 		"mp4": "video",
+		"mov": "video",
+		"flv": "video",
 	}
 	CONVERTCMD = map[string]string{
 		"mkv": "/usr/local/bin/ffmpeg -i \"{@}.mkv\" -vcodec copy -acodec copy \"{@}.mp4\"",
-		"wmv": "/usr/local/bin/ffmpeg -i \"{@}.wmv\" -c:v libx264 -crf 23 -c:a libfaac -q:a 100 \"{@}.mp4\"",
-		"avi": "/usr/local/bin/ffmpeg -i \"{@}.avi\" -c:v libx264 -crf 23 -c:a libfaac -q:a 100 \"{@}.mp4\"",
+		"wmv": "/usr/local/bin/ffmpeg -i \"{@}.wmv\" -c:v libx264 -crf 0 -preset veryslow -c:a libfaac -q:a 100 \"{@}.mp4\"",
+		"avi": "/usr/local/bin/ffmpeg -i \"{@}.avi\" -c:v libx264 -crf 0 -preset veryslow -c:a libfaac -q:a 100 \"{@}.mp4\"",
+		"mov": "/usr/local/bin/ffmpeg -i \"{@}.mov\" -c:v libx264 -crf 0 -preset veryslow -c:a libfaac -q:a 100 \"{@}.mp4\"",
 		"ass": "/usr/local/bin/ass2srt.pl -f `file -bi \"{@}.ass\"|cut -d= -f2` -t utf8 \"{@}.ass\" \"{@}.srt\"",
 	}
 	CONVFMT = map[string]string{
@@ -91,6 +96,7 @@ var (
 	convertingQueue = make(chan *file)
 	reEpisode       = regexp.MustCompile(`(\[|\s)(\d\d)(\]|\s)`)
 	wg              sync.WaitGroup
+	CDN             string
 )
 
 func init() {
@@ -101,8 +107,9 @@ func init() {
 		fmt.Println("not able to write lock file", LOCKFILE)
 		os.Exit(1)
 	}
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	// 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
+	CDN = *cdn
 	Host = "http://" + *host
 	Dir = *dir
 	showDebug := false
@@ -177,6 +184,7 @@ func mkPlaylist(dir string, m []*Media) string {
 	var ms Medias
 	ms.Title = dir2title(dir)
 	ms.Ms = m
+	ms.CDN = CDN
 	err := t.Execute(&buf, ms)
 	if err != nil {
 		Logger.Error("%v", err.Error())
@@ -202,7 +210,7 @@ func (m *Media) updateSubtitle() {
 	prefix := m.getPrefix()
 	var ss []Subtitle
 	var conf gfind.FindConf
-	r := strings.NewReplacer("(", "\\(", ")", "\\)", "[", "\\[", "]", "\\]", ".", "\\.", "\\", "\\\\", " ", "\\s", "'", "\\'")
+	r := strings.NewReplacer("+", "\\+", "(", "\\(", ")", "\\)", "[", "\\[", "]", "\\]", ".", "\\.", "\\", "\\\\", " ", "\\s", "'", "\\'")
 	Logger.Info("%v %v %v", "REPLACE", r.Replace(prefix), m.ext)
 	conf.Name = ".*" + r.Replace(prefix) + ".*"
 	conf.Ext = SUBTITLEFMT
@@ -265,7 +273,7 @@ func (f *file) updateUrl() {
 	}
 	file := f.path[len(Dir):]
 	Url.Path += file
-	f.Url = Url.String()[len(Host):]
+	f.Url = strings.Replace(Url.String()[len(Host):], "&", "%26", -1)
 }
 
 func (f *file) getDir() string {
