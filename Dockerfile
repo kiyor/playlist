@@ -7,7 +7,7 @@ COPY *.go ./
 RUN go get && \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /root/playlist .
 
-FROM centos
+FROM centos:7
 RUN rpm -Uvh http://repository.it4i.cz/mirrors/repoforge/redhat/el7/en/x86_64/rpmforge/RPMS/rpmforge-release-0.5.3-1.el7.rf.x86_64.rpm && \
     rpm -Uvh http://li.nux.ro/download/nux/dextop/el7/x86_64/nux-dextop-release-0-1.el7.nux.noarch.rpm && \
     yum install -y epel-release && \
