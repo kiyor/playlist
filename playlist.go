@@ -6,7 +6,7 @@
 
 * Creation Date : 03-16-2014
 
-* Last Modified : Sun 30 Apr 2017 10:28:53 AM UTC
+* Last Modified : Mon 30 Oct 2017 02:02:15 AM UTC
 
 * Created By : Kiyor
 
@@ -17,7 +17,7 @@ package main
 import (
 	"bytes"
 	"flag"
-	"fmt"
+	// 	"fmt"
 	"github.com/kiyor/gfind/lib"
 	"io/ioutil"
 	"net/url"
@@ -63,7 +63,7 @@ var (
 	host      *string = flag.String("host", "hostname", "host")
 	fullurl   *bool   = flag.Bool("fullurl", false, "set up full url")
 	dir       *string = flag.String("dir", "/home/nginx/html", "rootdir")
-	tmpldir   *string = flag.String("tmpl", "/home/nginx/templates/*.tmpl", "tmpldir")
+	tmpldir   *string = flag.String("tmpl", "./templates/*.tmpl", "tmpldir")
 	cdn       *string = flag.String("cdn", "", "cdn domain like cdn.playlist.com")
 	verbose   *bool   = flag.Bool("v", false, "output verbose")
 	MEDIATYPE         = map[string]string{
@@ -74,10 +74,10 @@ var (
 		"flv": "video",
 	}
 	CONVERTCMD = map[string]string{
-		"mkv": "/usr/local/bin/ffmpeg -i \"{@}.mkv\" -vcodec copy -acodec copy \"{@}.mp4\"",
-		"wmv": "/usr/local/bin/ffmpeg -i \"{@}.wmv\" -c:v libx264 -crf 0 -preset veryslow -c:a libfaac -q:a 100 \"{@}.mp4\"",
-		"avi": "/usr/local/bin/ffmpeg -i \"{@}.avi\" -c:v libx264 -crf 0 -preset veryslow -c:a libfaac -q:a 100 \"{@}.mp4\"",
-		"mov": "/usr/local/bin/ffmpeg -i \"{@}.mov\" -c:v libx264 -crf 0 -preset veryslow -c:a libfaac -q:a 100 \"{@}.mp4\"",
+		"mkv": "/usr/bin/ffmpeg -i \"{@}.mkv\" -vcodec copy -acodec copy \"{@}.mp4\"",
+		"wmv": "/usr/bin/ffmpeg -i \"{@}.wmv\" -c:v libx264 -c:a libfaac -q:a 100 \"{@}.mp4\"",
+		"avi": "/usr/bin/ffmpeg -i \"{@}.avi\" -c:v libx264 -c:a libfaac -q:a 100 \"{@}.mp4\"",
+		"mov": "/usr/bin/ffmpeg -i \"{@}.mov\" -c:v libx264 -c:a libfaac -q:a 100 \"{@}.mp4\"",
 		"ass": "/usr/local/bin/ass2srt.pl -f `file -bi \"{@}.ass\"|cut -d= -f2` -t utf8 \"{@}.ass\" \"{@}.srt\"",
 	}
 	CONVFMT = map[string]string{
@@ -90,8 +90,8 @@ var (
 		"zh-cn": "sc,GB",
 		"zh-tw": "tc,BIG5",
 	}
-	Host, Dir       string
-	LOCKFILE        = "/var/run/playlist/playlist.lock"
+	Host, Dir string
+	// 	LOCKFILE        = "/var/run/playlist/playlist.lock"
 	SUBTITLEFMT     = "srt"
 	convertingQueue = make(chan *file)
 	reEpisode       = regexp.MustCompile(`(\[|\s)(\d\d)(\]|\s)`)
@@ -100,13 +100,13 @@ var (
 )
 
 func init() {
-	if _, err := os.Stat(LOCKFILE); err == nil {
-		os.Exit(1)
-	}
-	if err := ioutil.WriteFile(LOCKFILE, []byte(""), 0644); err != nil {
-		fmt.Println("not able to write lock file", LOCKFILE)
-		os.Exit(1)
-	}
+	// 	if _, err := os.Stat(LOCKFILE); err == nil {
+	// 		os.Exit(1)
+	// 	}
+	// 	if err := ioutil.WriteFile(LOCKFILE, []byte(""), 0644); err != nil {
+	// 		fmt.Println("not able to write lock file", LOCKFILE)
+	// 		os.Exit(1)
+	// 	}
 	// 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 	CDN = *cdn
@@ -126,17 +126,17 @@ func init() {
 }
 
 func main() {
-	defer func() {
-		if err := os.Remove(LOCKFILE); err != nil {
-			Logger.Error("%v %v", "cannot remove lock file", LOCKFILE)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}()
+	// 	defer func() {
+	// 		if err := os.Remove(LOCKFILE); err != nil {
+	// 			Logger.Error("cannot remove lock file", LOCKFILE)
+	// 			os.Exit(1)
+	// 		}
+	// 		os.Exit(0)
+	// 	}()
 	go converting()
 	files, err := find(Dir, 0)
 	if err != nil {
-		Logger.Error("%v", err.Error())
+		Logger.Error(err.Error())
 	}
 	var dirs []string
 	for _, v := range files {
@@ -148,12 +148,12 @@ func main() {
 		go func(dir string) {
 			list, err := find(dir, 1)
 			if err != nil {
-				Logger.Error("%v", err.Error())
+				Logger.Error(err.Error())
 			}
 			ms := list2media(list)
 			err = write2file(dir, mkPlaylist(dir, ms))
 			if err != nil {
-				Logger.Error("%v", err.Error())
+				Logger.Error(err.Error())
 			}
 			wg.Done()
 		}(dir)
@@ -169,7 +169,7 @@ func write2file(dir string, player string) error {
 func mkPlaylist(dir string, m []*Media) string {
 	defer func() {
 		if r := recover(); r != nil {
-			Logger.Critical("%v %v", "Recovered in mkPlaylist", r)
+			Logger.Critical("Recovered in mkPlaylist", r)
 		}
 	}()
 	token := strings.Split(m[0].T, "/")
@@ -187,7 +187,7 @@ func mkPlaylist(dir string, m []*Media) string {
 	ms.CDN = CDN
 	err := t.Execute(&buf, ms)
 	if err != nil {
-		Logger.Error("%v", err.Error())
+		Logger.Error(err.Error())
 	}
 	return buf.String()
 }
@@ -211,7 +211,7 @@ func (m *Media) updateSubtitle() {
 	var ss []Subtitle
 	var conf gfind.FindConf
 	r := strings.NewReplacer("+", "\\+", "(", "\\(", ")", "\\)", "[", "\\[", "]", "\\]", ".", "\\.", "\\", "\\\\", " ", "\\s", "'", "\\'")
-	Logger.Info("%v %v %v", "REPLACE", r.Replace(prefix), m.ext)
+	Logger.Info("REPLACE", r.Replace(prefix), m.ext)
 	conf.Name = ".*" + r.Replace(prefix) + ".*"
 	conf.Ext = SUBTITLEFMT
 	conf.Dir = m.getDir()
@@ -224,7 +224,7 @@ func (m *Media) updateSubtitle() {
 			s.guessLang()
 			s.getEpisode()
 			ss = append(ss, s)
-			Logger.Info("%v %v %v %v %v", "file", m.Name, "has Subtitle", s.Name, s.Lang)
+			Logger.Info("file", m.Name, "has Subtitle", s.Name, s.Lang)
 		}
 	}
 	m.Sub = ss
@@ -251,7 +251,7 @@ func (s *Subtitle) guessLang() {
 		for _, keyString := range keyStrings {
 			r, err := regexp.Compile(`.*` + keyString + `.*`)
 			if err != nil {
-				Logger.Error("%v", err.Error())
+				Logger.Error(err.Error())
 			} else if r.MatchString(s.Name) {
 				s.Lang = keyLang
 				return
@@ -290,7 +290,7 @@ func find(location string, depth int) ([]*file, error) {
 	var files []*file
 	locationToken := strings.Split(location, "/")
 	err := filepath.Walk(location, func(path string, f os.FileInfo, _ error) error {
-		Logger.Info("%v %v", "found file", path)
+		Logger.Info("found file", path)
 		var myfile file
 		myfile.FileInfo = f
 		myfile.update(path)
@@ -330,7 +330,7 @@ func (f *file) update(path string) error {
 	if err != nil {
 		f.FileInfo, err = os.Lstat(path)
 		if err != nil {
-			Logger.Error("%v", err.Error())
+			Logger.Error(err.Error())
 			return err
 		}
 	}
@@ -353,7 +353,7 @@ func (f *file) needPlaylist() bool {
 func (f *file) needConv() bool {
 	for k, _ := range CONVFMT {
 		if k == f.ext {
-			Logger.Info("%v %v", "need convert", f.Name)
+			Logger.Info("need convert", f.Name)
 			return true
 		}
 	}
@@ -368,12 +368,12 @@ func (f *file) convert() {
 	f.isConverting = true
 	prefix := f.getDir() + f.getPrefix()
 	convCmd := strings.Replace(CONVERTCMD[f.ext], "{@}", prefix, -1)
-	Logger.Notice("%v", convCmd)
+	Logger.Notice(convCmd)
 	cmd := exec.Command("/bin/bash", "-c", convCmd)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		Logger.Error("%v %v %v", "not able to convert file", f.Name, err.Error())
+		Logger.Error("not able to convert file", f.Name, err.Error())
 	}
 	f.isConverting = false
 }

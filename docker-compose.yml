@@ -1,0 +1,11 @@
+version: '3.3'
+services:
+  playlist:
+    container_name: playlist
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    volumes:
+      - /data/nginx/html:/home/nginx/html
+      - ./templates:/root/templates
